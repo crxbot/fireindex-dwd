@@ -2,7 +2,7 @@ name: Cleanup Old Workflow Runs
 
 on:
   workflow_run:
-    workflows: ["Fetch Waldbrand File and Generate Files"] # oder "*" für alle Workflows
+    workflows: ["Fetch Waldbrand and Grasland Files and Generate Files"] # oder "*" für alle Workflows
     types:
       - completed  # Löst aus, sobald ein Run fertig ist
 permissions: 

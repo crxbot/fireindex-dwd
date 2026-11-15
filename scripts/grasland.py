@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lädt die Grasland-WebP, lässt waldbrand_meta.py alles erzeugen
+"""Lädt die Grasland-WebP, lässt grasland_meta.py alles erzeugen
 und kann einen Punkt (lat/lon) nachschlagen."""
 import argparse, json, sys, urllib.request
 from pathlib import Path
@@ -19,7 +19,7 @@ def http_get(url):
 
 
 def find_grasland_file(obj):
-    """Sucht rekursiv den Eintrag "WALDBRAND" -> "file"."""
+    """Sucht rekursiv den Eintrag "GRASLAND" -> "file"."""
     if isinstance(obj, dict):
         wb = obj.get("GRASLAND")
         if isinstance(wb, dict) and isinstance(wb.get("file"), str):
@@ -58,7 +58,7 @@ def download_webp(json_url):
 
 
 def lookup(out, lat, lon):
-    m = json.loads((out / "meta.json").read_text())
+    m = json.loads((out / "metadata.json").read_text())
     b, W, H = m["bounds"], m["width"], m["height"]
     x = int((lon - b["west"]) / (b["east"] - b["west"]) * W)
     y = int((merc_y(b["north"]) - merc_y(lat)) / (merc_y(b["north"]) - merc_y(b["south"])) * H)
@@ -75,7 +75,7 @@ def main():
     ap.add_argument("--json-url", default=JSON_URL)
     ap.add_argument("--webp-url", help="WebP direkt von dieser URL laden")
     ap.add_argument("--webp", help="lokale WebP-Datei verwenden")
-    ap.add_argument("--out", default="waldbrand_out")
+    ap.add_argument("--out", default="grasland_out")
     ap.add_argument("--lat", type=float)
     ap.add_argument("--lon", type=float)
     a = ap.parse_args()

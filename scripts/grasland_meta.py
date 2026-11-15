@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Erzeugt aus der Waldbrand-WebP-Animation alle Ausgabedateien:
-pro Tag eine Datei WALDBRAND_YYYYMMDD ohne Endung (uint8-Stufen) und eine meta.json.
+"""Erzeugt aus der Grasland-WebP-Animation alle Ausgabedateien:
+pro Tag eine Datei GRASLAND_YYYYMMDD ohne Endung (uint8-Stufen) und eine meta.json.
 
-Nutzung:  python waldbrand_meta.py --webp datei.webp --out waldbrand_out
+Nutzung:  python grasland_meta.py --webp datei.webp --out grasland_out
 """
 import argparse, datetime as dt, io, json, math, re
 from pathlib import Path
@@ -48,7 +48,7 @@ def build(raw, out):
         lvl = frame_to_levels(f)
         shape = shape or lvl.shape
         d = dt.datetime.fromtimestamp(x["start"] + i * x["step"], dt.timezone.utc)
-        fn = f"WALDBRAND_{d:%Y%m%d}"
+        fn = f"GRASLAND_{d:%Y%m%d}"
         lvl.tofile(out / fn)
         days.append({"date": d.strftime("%d.%m.%Y"), "iso": d.strftime("%Y-%m-%d"), "file": fn})
         cnt = np.bincount(lvl.ravel(), minlength=6)
@@ -70,7 +70,7 @@ def build(raw, out):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--webp", required=True, help="lokale WebP-Datei")
-    ap.add_argument("--out", default="waldbrand_out")
+    ap.add_argument("--out", default="grasland_out")
     a = ap.parse_args()
     build(Path(a.webp).read_bytes(), a.out)
     print("Fertig ->", Path(a.out).resolve())

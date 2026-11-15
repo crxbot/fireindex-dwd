@@ -58,7 +58,7 @@ def download_webp(json_url):
 
 
 def lookup(out, lat, lon):
-    m = json.loads((out / "meta.json").read_text())
+    m = json.loads((out / "metadata.json").read_text())
     b, W, H = m["bounds"], m["width"], m["height"]
     x = int((lon - b["west"]) / (b["east"] - b["west"]) * W)
     y = int((merc_y(b["north"]) - merc_y(lat)) / (merc_y(b["north"]) - merc_y(b["south"])) * H)

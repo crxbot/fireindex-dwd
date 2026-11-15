@@ -1,20 +1,20 @@
-name: Fetch Waldbrand File and Generate Files
+name: Fetch Waldbrand and Grasland Files and Generate Files
 
 on:
   workflow_dispatch:
 
 concurrency:
   # verhindert, dass zwei Laeufe gleichzeitig dieselben Dateien generieren/hochladen
-  group: fetch-waldbrand
+  group: fetch-fireindex
   cancel-in-progress: false
 
-env:
-  R2_PREFIX: waldbrand
-
 jobs:
-  fetch_generate_deploy:
+  fetch_waldbrand:
+    name: Waldbrand
     runs-on: ubuntu-latest
     timeout-minutes: 10 # Sicherheitsnetz, falls der Download haengt
+    env:
+      R2_PREFIX: waldbrand
 
     steps:
       - name: Checkout Repo
@@ -38,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download WebP and generate files + meta.json (mit Retry)
+      - name: Download WebP and generate files + metadata.json (mit Retry)
         run: |
           MAX_ATTEMPTS=5
           SLEEP_SECONDS=10
@@ -72,6 +72,7 @@ jobs:
           MAX_ATTEMPTS=3
           for i in $(seq 1 "$MAX_ATTEMPTS"); do
             # --delete entfernt alte Tages-Dateien, die nicht mehr in metadata.json stehen
+            # (wirkt nur innerhalb des Prefix waldbrand/)
             if aws s3 sync ./output/waldbrand \
                 "s3://${{ secrets.R2_BUCKET }}/${R2_PREFIX}/" \
                 --exclude "*" --include "WALDBRAND_*" \
@@ -90,12 +91,119 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
-      - name: Upload meta.json zu R2 (zuletzt, mit Retry)
+      - name: Upload metadata.json zu R2 (zuletzt, mit Retry)
         run: |
           GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           MAX_ATTEMPTS=3
           for i in $(seq 1 "$MAX_ATTEMPTS"); do
             if aws s3 cp ./output/waldbrand/metadata.json \
+                "s3://${{ secrets.R2_BUCKET }}/${R2_PREFIX}/metadata.json" \
+                --metadata "generated_at=${GENERATED_AT}" \
+                --content-type application/json \
+                --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com; then
+              echo "metadata.json hochgeladen (Versuch $i/$MAX_ATTEMPTS)."
+              exit 0
+            fi
+            echo "Upload fehlgeschlagen (Versuch $i/$MAX_ATTEMPTS), warte 10s..."
+            sleep 10
+          done
+          echo "::error::Upload von metadata.json nach $MAX_ATTEMPTS Versuchen fehlgeschlagen."
+          exit 1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+  fetch_grasland:
+    name: Grasland
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # Sicherheitsnetz, falls der Download haengt
+    needs: fetch_waldbrand
+    # Grasland laeuft immer NACH Waldbrand - auch wenn Waldbrand fehlschlaegt (nur nicht bei Abbruch)
+    if: ${{ !cancelled() }}
+    env:
+      R2_PREFIX: grasland
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.WB_PAT }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Cache Python packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download WebP and generate files + metadata.json (mit Retry)
+        run: |
+          MAX_ATTEMPTS=5
+          SLEEP_SECONDS=10
+
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            if python scripts/grasland.py --out output/grasland; then
+              echo "[Grasland] Erfolgreich (Versuch $i/$MAX_ATTEMPTS)."
+              exit 0
+            fi
+            echo "[Grasland] Versuch $i/$MAX_ATTEMPTS fehlgeschlagen, warte ${SLEEP_SECONDS}s..."
+            sleep "$SLEEP_SECONDS"
+          done
+          echo "::error::[Grasland] Nach $MAX_ATTEMPTS Versuchen nicht erfolgreich - Abbruch."
+          exit 1
+
+      - name: Check output
+        run: |
+          test -s output/grasland/metadata.json
+          ls -l output/grasland
+
+      - name: Gzip der Tagesdateien
+        run: |
+          # gleiche Dateinamen wie in metadata.json, nur Inhalt gzip-komprimiert (metadata.json bleibt Klartext)
+          for f in output/grasland/GRASLAND_*; do
+            gzip -9 -n -c "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
+          ls -l output/grasland
+
+      - name: Upload Tagesdateien zu R2 (mit Retry)
+        run: |
+          MAX_ATTEMPTS=3
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            # --delete entfernt alte Tages-Dateien, die nicht mehr in metadata.json stehen
+            # (wirkt nur innerhalb des Prefix grasland/)
+            if aws s3 sync ./output/grasland \
+                "s3://${{ secrets.R2_BUCKET }}/${R2_PREFIX}/" \
+                --exclude "*" --include "GRASLAND_*" \
+                --delete \
+                --content-type application/gzip \
+                --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com; then
+              echo "Upload erfolgreich (Versuch $i/$MAX_ATTEMPTS)."
+              exit 0
+            fi
+            echo "Upload fehlgeschlagen (Versuch $i/$MAX_ATTEMPTS), warte 10s..."
+            sleep 10
+          done
+          echo "::error::Upload der Tagesdateien nach $MAX_ATTEMPTS Versuchen fehlgeschlagen."
+          exit 1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+      - name: Upload metadata.json zu R2 (zuletzt, mit Retry)
+        run: |
+          GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          MAX_ATTEMPTS=3
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            if aws s3 cp ./output/grasland/metadata.json \
                 "s3://${{ secrets.R2_BUCKET }}/${R2_PREFIX}/metadata.json" \
                 --metadata "generated_at=${GENERATED_AT}" \
                 --content-type application/json \
