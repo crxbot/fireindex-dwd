@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 10 # Sicherheitsnetz, falls der Download haengt
     env:
       R2_PREFIX: waldbrand
+      AWS_DEFAULT_REGION: auto
 
     steps:
       - name: Checkout Repo
@@ -122,6 +123,7 @@ jobs:
     if: ${{ !cancelled() }}
     env:
       R2_PREFIX: grasland
+      AWS_DEFAULT_REGION: auto
 
     steps:
       - name: Checkout Repo
