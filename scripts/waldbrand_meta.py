@@ -30,8 +30,10 @@ def read_xmp(im):
 def frame_to_levels(frame):
     a = np.array(frame.convert("RGBA"))
     lvl = (a[..., 1] // 51 + 1).astype(np.uint8)          # Grünwert 0,51,102,... -> 1,2,3,...
+    lvl = np.minimum(lvl, 5)
     outside = (a[..., 0] == 255) & (a[..., 1] == 0) & (a[..., 2] == 0)
     lvl[outside] = 0                                      # Rot = außerhalb
+    lvl[a[..., 3] == 0] = 0                               # transparent = keine Daten
     return lvl
 
 
@@ -44,15 +46,29 @@ def build(raw, out):
     x = read_xmp(im)
 
     days, shape = [], None
-    for i, f in enumerate(ImageSequence.Iterator(im)):
-        lvl = frame_to_levels(f)
+    t = x["start"]
+
+    # Frames einzeln lesen (Pillow liefert beim Iterieren immer dasselbe Objekt)
+    parsed = []
+    for i in range(getattr(im, "n_frames", 1)):
+        im.seek(i)
+        lvl = frame_to_levels(im)              # lädt den Frame, erst danach stimmt info["duration"]
+        dur = im.info.get("duration") or 0
+        parsed.append((lvl, dur))
+
+    unit = min((d for _, d in parsed if d > 0), default=1)   # kleinste Dauer = 1 Tag
+
+    for lvl, dur in parsed:
         shape = shape or lvl.shape
-        d = dt.datetime.fromtimestamp(x["start"] + i * x["step"], dt.timezone.utc)
-        fn = f"WALDBRAND_{d:%Y%m%d}"
-        lvl.tofile(out / fn)
-        days.append({"date": d.strftime("%d.%m.%Y"), "iso": d.strftime("%Y-%m-%d"), "file": fn})
-        cnt = np.bincount(lvl.ravel(), minlength=6)
-        print(fn, "Stufen 1-5:", cnt[1:].tolist())
+        n = max(1, round(dur / unit))
+        for _ in range(n):
+            d = dt.datetime.fromtimestamp(t, dt.timezone.utc)
+            fn = f"WALDBRAND_{d:%Y%m%d}"   # in grasland_meta.py: GRASLAND_
+            lvl.tofile(out / fn)
+            days.append({"date": d.strftime("%d.%m.%Y"), "iso": d.strftime("%Y-%m-%d"), "file": fn})
+            cnt = np.bincount(lvl.ravel(), minlength=6)
+            print(fn, "Stufen 1-5:", cnt[1:].tolist())
+            t += x["step"]
     H, W = shape
 
     b = {k: x[k] for k in ("west", "east", "south", "north")}
